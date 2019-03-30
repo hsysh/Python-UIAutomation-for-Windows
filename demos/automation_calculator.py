@@ -1,13 +1,17 @@
 #!python3
 # -*- coding: utf-8 -*-
-# works on windows XP, 7, 8 and 10
+# works on windows XP, 7, 8, 8.1 and 10
 import os
 import sys
 import time
 import subprocess
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # not required after 'pip install uiautomation'
-import uiautomation as automation
+import uiautomation as auto
+
+auto.uiautomation.DEBUG_EXIST_DISAPPEAR = True  # set it to False and try again, default is False
+auto.uiautomation.DEBUG_SEARCH_TIME = True  # set it to False and try again, default is False
+auto.uiautomation.TIME_OUT_SECOND = 10  # global time out
 
 
 def Calc(window, btns, expression):
@@ -15,28 +19,39 @@ def Calc(window, btns, expression):
     if not expression.endswith('='):
         expression += '='
     for char in expression:
-        automation.Logger.Write(char, writeToFile = False)
-        btns[char].Click(waitTime = 0.05)
-    window.SendKeys('{Ctrl}c', waitTime = 0)
-    result = automation.GetClipboardText()
-    automation.Logger.WriteLine(result, automation.ConsoleColor.Cyan, writeToFile = False)
+        auto.Logger.Write(char, writeToFile = False)
+        btns[char].Click(waitTime=0.05)
+    time.sleep(0.1)
+    window.SendKeys('{Ctrl}c', waitTime = 0.1)
+    result = auto.GetClipboardText()
+    auto.Logger.WriteLine(result, auto.ConsoleColor.Cyan, writeToFile = False)
     time.sleep(1)
 
 
 def CalcOnXP():
     chars = '0123456789.+-*/=()'
-    calcWindow = automation.WindowControl(searchDepth = 1, ClassName = 'SciCalc')
+    calcWindow = auto.WindowControl(searchDepth=1, ClassName='SciCalc')
     if not calcWindow.Exists(0, 0):
         subprocess.Popen('calc')
     calcWindow.SetActive()
     calcWindow.SendKeys('{Alt}vs', 0.5)
-    clearBtn = calcWindow.ButtonControl(Name = 'CE')
+    clearBtn = calcWindow.ButtonControl(Name = 'CE')  #
     clearBtn.Click()
-    char2Button = {}
-    for key in chars:
-        char2Button[key] = calcWindow.ButtonControl(Name = key)
-    Calc(calcWindow, char2Button, '1234 * (4 + 5 + 6) - 78 / 90')
+    if 0:
+        #Desc it not a valid search property, but it can be used for debug printing
+        char2Button = {key: calcWindow.ButtonControl(Name=key, Desc='Button ' + key) for key in chars}
+    else:
+        #Run faster because it only walk calc window once
+        char2Button = {}
+        for c, d in auto.WalkControl(calcWindow, maxDepth=1):
+            if c.Name in chars:
+                char2Button[c.Name] = c
+    Calc(calcWindow, char2Button, '1234 * (4 + 5 + 6) - 78 / 90.8')
+    Calc(calcWindow, char2Button, '3*3+4*4')
     Calc(calcWindow, char2Button, '2*3.14159*10')
+    calcWindow.Disappears(1)
+    calcWindow.GetWindowPattern().Close()
+    calcWindow.Exists(1)
 
 
 def CalcOnWindows7And8():
@@ -60,19 +75,30 @@ def CalcOnWindows7And8():
         '(' : '128',
         ')' : '129',
     }
-    calcWindow = automation.WindowControl(searchDepth = 1, ClassName = 'CalcFrame')
+    calcWindow = auto.WindowControl(searchDepth = 1, ClassName = 'CalcFrame')
     if not calcWindow.Exists(0, 0):
         subprocess.Popen('calc')
     calcWindow.SetActive()
     calcWindow.SendKeys('{Alt}2')
     clearBtn = calcWindow.ButtonControl(foundIndex= 8, Depth = 3)  #test foundIndex and Depth, the 8th button is clear
-    if clearBtn.AutomationId == '82':
+    if clearBtn.Exists() and clearBtn.AutomationId == '82':
         clearBtn.Click()
-    char2Button = {}
-    for key in char2Id:
-        char2Button[key] = calcWindow.ButtonControl(AutomationId = char2Id[key])
-    Calc(calcWindow, char2Button, '1234 * (4 + 5 + 6) - 78 / 90')
+    if 0:
+        #Desc it not a valid search property, but it can be used for debug printing
+        char2Button = {key: calcWindow.ButtonControl(AutomationId=char2Id[key], Desc='Button ' + key) for key in char2Id}
+    else:
+        #Run faster because it only walk calc window once
+        id2char = {v: k for k, v in char2Id.items()}
+        char2Button = {}
+        for c, d in auto.WalkControl(calcWindow):
+            if c.AutomationId in id2char:
+                char2Button[id2char[c.AutomationId]] = c
+    Calc(calcWindow, char2Button, '1234 * (4 + 5 + 6) - 78 / 90.8')
+    Calc(calcWindow, char2Button, '3*3+4*4')
     Calc(calcWindow, char2Button, '2*3.14159*10')
+    calcWindow.Disappears(1)
+    calcWindow.GetWindowPattern().Close()
+    calcWindow.Exists(1)
 
 
 def CalcOnWindows10():
@@ -96,25 +122,41 @@ def CalcOnWindows10():
         '(' : 'openParanthesisButton',
         ')' : 'closeParanthesisButton',
     }
-    calcWindow = automation.WindowControl(searchDepth = 1, ClassName = 'ApplicationFrameWindow', Name = 'Calculator')
+    calcWindow = auto.WindowControl(searchDepth = 1, ClassName = 'ApplicationFrameWindow', Name = 'Calculator')
     if not calcWindow.Exists(0, 0):
         subprocess.Popen('calc')
     calcWindow.SetActive()
     calcWindow.ButtonControl(AutomationId = 'NavButton').Click()
     calcWindow.ListItemControl(Name = 'Scientific Calculator').Click()
-    calcWindow.ButtonControl(AutomationId = 'clearButton').Click()
-    char2Button = {}
-    for key in char2Id:
-        char2Button[key] = calcWindow.ButtonControl(AutomationId = char2Id[key])
-    Calc(calcWindow, char2Button, '1234 * (4 + 5 + 6) - 78 / 90')
+    calcWindow.ButtonControl(AutomationId='clearButton').Click()
+    if 1:
+        #Desc it not a valid search property, but it can be used for debug printing
+        char2Button = {key: calcWindow.ButtonControl(AutomationId=char2Id[key], Desc='Button ' + key) for key in char2Id}
+    else:
+        #Run faster because it only walk calc window once
+        id2char = {v: k for k, v in char2Id.items()}
+        char2Button = {}
+        for c, d in auto.WalkControl(calcWindow, maxDepth=3):
+            if c.AutomationId in id2char:
+                char2Button[id2char[c.AutomationId]] = c
+    Calc(calcWindow, char2Button, '1234 * (4 + 5 + 6) - 78 / 90.8')
+    Calc(calcWindow, char2Button, '3*3+4*4')
     Calc(calcWindow, char2Button, '2*3.14159*10')
+    calcWindow.CaptureToImage('calc.png', 7, 0, -14, -7)  # on windows 10, 7 pixels of windows border are transparent
+    calcWindow.Disappears(1)
+    calcWindow.GetWindowPattern().Close()
+    calcWindow.Exists(1)
 
 if __name__ == '__main__':
-    import platform
-    osVersion = int(platform.version().split('.')[0])
+    osVersion = os.sys.getwindowsversion().major
     if osVersion < 6:
         CalcOnXP()
     elif osVersion == 6:
         CalcOnWindows7And8()
     elif osVersion >= 10:
         CalcOnWindows10()
+
+    auto.Logger.Write('\nPress any key to exit', auto.ConsoleColor.Cyan)
+    import msvcrt
+    while not msvcrt.kbhit():
+        pass

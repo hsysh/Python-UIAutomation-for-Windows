@@ -1,25 +1,28 @@
 #!python3
 # -*- coding: utf-8 -*-
-# hide a window with hotkey Ctrl+Shift+1, show the hidden window with hotkey Ctrl+Shift+2
+# hide a window with hotkey Ctrl+1, show the hidden window with hotkey Ctrl+2
 # run notepad.exe first and then press the hotkey for test
 import os
 import sys
+import time
+import ctypes
 import subprocess
+import psutil
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # not required after 'pip install uiautomation'
-import uiautomation as automation
+import uiautomation as auto
 
 WindowsWantToHide = ('Warcraft III', 'Valve001', 'Counter-Strike', 'Notepad')
 
 
 def hide():
-    root = automation.GetRootControl()
+    root = auto.GetRootControl()
     for window in root.GetChildren():
         if window.ClassName in WindowsWantToHide:
-            automation.Logger.WriteLine('hide window, handle {}'.format(window.Handle))
+            auto.Logger.WriteLine('hide window, handle {}'.format(window.NativeWindowHandle))
             window.Hide()
             fin = open('hide_windows.txt', 'wt')
-            fin.write(str(window.Handle) + '\n')
+            fin.write(str(window.NativeWindowHandle) + '\n')
             fin.close()
 
 
@@ -29,62 +32,46 @@ def show():
     fout.close()
     for line in lines:
         handle = int(line)
-        window = automation.ControlFromHandle(handle)
+        window = auto.ControlFromHandle(handle)
         if window:
-            automation.Logger.WriteLine('show window: {}'.format(handle))
+            auto.Logger.WriteLine('show window: {}'.format(handle))
             window.Show()
 
-def HideWindowFunc(stopEvent):
-    scriptName = os.path.basename(__file__)
-    cmd = r'python.exe {} hide {}'.format(scriptName, ' '.join(sys.argv[1:]))
-    automation.Logger.ColorfulWriteLine('HideWindowFunc call <Color=Green>{}</Color>'.format(cmd))
+def HotKeyFunc(stopEvent: 'Event', argv: list):
+    args = [sys.executable, __file__] + argv
+    cmd = ' '.join('"{}"'.format(arg) for arg in args)
+    auto.Logger.WriteLine('call {}'.format(cmd))
     p = subprocess.Popen(cmd)
     while True:
         if None != p.poll():
             break
         if stopEvent.is_set():
-            childProcess = []
-            for pid, pname in automation.Win32API.EnumProcess():
-                ppid = automation.Win32API.GetParentProcessId(pid)
-                if ppid == p.pid or pid == p.pid:
-                    cmd = automation.Win32API.GetProcessCommandLine(pid)
-                    childProcess.append((pid, pname, cmd))
-            for pid, pname, cmd in childProcess:
-                automation.Logger.WriteLine('kill process: {}, {}, "{}"'.format(pid, pname, cmd), automation.ConsoleColor.Yellow)
-                automation.Win32API.TerminateProcess(pid)
+            childProcesses = [pro for pro in psutil.process_iter() if pro.ppid == p.pid or pro.pid == p.pid]
+            for pro in childProcesses:
+                auto.Logger.WriteLine('kill process: {}, {}'.format(pro.pid, pro.cmdline()), auto.ConsoleColor.Yellow)
+                p.kill()
             break
-        stopEvent.wait(1)
-    automation.Logger.WriteLine('HideWindowFunc exit')
-
-def ShowWindowFunc(stopEvent):
-    scriptName = os.path.basename(__file__)
-    cmd = r'python.exe {} show {}'.format(scriptName, ' '.join(sys.argv[1:]))
-    automation.Logger.ColorfulWriteLine('ShowWindowFunc call <Color=Green>{}</Color>'.format(cmd))
-    p = subprocess.Popen(cmd)
-    while True:
-        if None != p.poll():
-            break
-        if stopEvent.is_set():
-            childProcess = []
-            for pid, pname in automation.Win32API.EnumProcess():
-                ppid = automation.Win32API.GetParentProcessId(pid)
-                if ppid == p.pid or pid == p.pid:
-                    cmd = automation.Win32API.GetProcessCommandLine(pid)
-                    childProcess.append((pid, pname, cmd))
-            for pid, pname, cmd in childProcess:
-                automation.Logger.WriteLine('kill process: {}, {}, "{}"'.format(pid, pname, cmd), automation.ConsoleColor.Yellow)
-                automation.Win32API.TerminateProcess(pid)
-            break
-        stopEvent.wait(1)
-    automation.Logger.WriteLine('ShowWindowFunc exit')
+        stopEvent.wait(0.01)
 
 if __name__ == '__main__':
-    if 'hide' in sys.argv[1:]:
-        hide()
-    elif 'show' in sys.argv[1:]:
-        show()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--main', action='store_true', help='exec main')
+    parser.add_argument('--hide', action='store_true', help='hide window')
+    parser.add_argument('--show', action='store_true', help='show window')
+    args = parser.parse_args()
+
+    if args.main:
+        if args.hide:
+            hide()
+        elif args.show:
+            show()
     else:
-        automation.RunWithHotKey({(automation.ModifierKey.MOD_CONTROL|automation.ModifierKey.MOD_SHIFT, automation.Keys.VK_1) : HideWindowFunc
-                                    , (automation.ModifierKey.MOD_CONTROL|automation.ModifierKey.MOD_SHIFT, automation.Keys.VK_2) : ShowWindowFunc}
-                                 , (automation.ModifierKey.MOD_CONTROL, automation.Keys.VK_4)
-                                )
+        subprocess.Popen('notepad')
+        auto.GetConsoleWindow().SetActive()
+        auto.Logger.ColorfullyWriteLine('Press <Color=Green>Ctr+1</Color> to hide\nPress <Color=Green>Ctr+2</Color> to show\n')
+        auto.RunByHotKey({(auto.ModifierKey.Control, auto.Keys.VK_1): lambda e: HotKeyFunc(e, ['--main', '--hide']),
+                            (auto.ModifierKey.Control, auto.Keys.VK_2): lambda e: HotKeyFunc(e, ['--main', '--show']),
+                          },
+                           (auto.ModifierKey.Control, auto.Keys.VK_9))
+

@@ -4,8 +4,7 @@ import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # not required after 'pip install uiautomation'
-import uiautomation as automation
-
+import uiautomation as auto
 
 def GetDirChildren(directory):
     if os.path.isdir(directory):
@@ -19,31 +18,35 @@ def GetDirChildren(directory):
                 files.append(absPath)
         return subdirs + files
 
-
 def main(directory, maxDepth = 0xFFFFFFFF):
     remain = {}
-    text = []
+    texts = []
     absdir = os.path.abspath(directory)
-    for it, depth, remainCount in automation.WalkTree(absdir, getChildrenFunc=GetDirChildren, includeTop=True, maxDepth=maxDepth):
+    for it, depth, remainCount in auto.WalkTree(absdir, getChildren=GetDirChildren, includeTop=True, maxDepth=maxDepth):
         remain[depth] = remainCount
         isDir = os.path.isdir(it)
-        prefix = ''.join(['│   ' if remain[i+1] else '    ' for i in range(depth - 1)]) # u'│   ' for python 2
+        prefixPrint = ''.join(['│　　' if remain[i + 1] else '　　　' for i in range(depth - 1)])
+        prefixLog = ''.join(['│   ' if remain[i + 1] else '    ' for i in range(depth - 1)])
         if depth > 0:
             if remain[depth] > 0:
-                prefix += '├─→ ' if isDir else '├── '   #'□─→ ' # u'├─→ ' for python 2
+                prefixPrint += '├─→' if isDir else '├──'
+                prefixLog += '├─→ ' if isDir else '├── '
             else:
-                prefix += '└─→ ' if isDir else '└── '   #'□─→ ' # u'└─→ ' for python 2
-        file = it[it.rfind('\\')+1:]
-        text.append(prefix)
-        text.append(file)
-        text.append('\r\n')
-        automation.Logger.Write(prefix)
-        automation.Logger.WriteLine(file, automation.ConsoleColor.Cyan if os.path.isdir(it) else -1)
-    automation.SetClipboardText(''.join(text))
+                prefixPrint += '└─→' if isDir else '└──'
+                prefixLog += '└─→ ' if isDir else '└── '
+        file = os.path.basename(it)
+        texts.append(prefixLog)
+        texts.append(file)
+        texts.append('\n')
+        auto.Logger.Write(prefixPrint, writeToFile=False)
+        auto.Logger.WriteLine(file, auto.ConsoleColor.Cyan if os.path.isdir(it) else auto.ConsoleColor.Default, writeToFile=False)
+    allText = ''.join(texts)
+    auto.Logger.WriteLine(allText, printToStdout=False)
+    ret = input('\npress Y to save dir tree to clipboard, press other keys to exit')
+    if ret.lower() == 'y':
+        auto.SetClipboardText(allText)
 
 if __name__ == '__main__':
-    if not automation.IsPy3:
-        input = raw_input
     if len(sys.argv) == 1:
         dir_ = input('input a dir: ')
         main(dir_)
@@ -51,4 +54,3 @@ if __name__ == '__main__':
         main(sys.argv[1])
     else:
         main(sys.argv[1], int(sys.argv[2]))
-    input('\nThe pretty dir tree has been copied to clipboard, just paste it\nPress Enter to exit')

@@ -2,57 +2,59 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import time
 import subprocess
+import psutil
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # not required after 'pip install uiautomation'
-import uiautomation as automation
+import uiautomation as auto
 
 
-def CollapseTreeItem(treeItem):
-    if not isinstance(treeItem, automation.TreeItemControl):
+def CollapseTreeItem(treeItem: auto.TreeItemControl):
+    if not isinstance(treeItem, auto.TreeItemControl):
         return False
     children = treeItem.GetChildren()
     if children:
         for it in children:
             CollapseTreeItem(it)
-        treeItem.Collapse(0)
-        return True
+        ecpt = treeItem.GetExpandCollapsePattern()
+        if ecpt and ecpt.ExpandCollapseState == auto.ExpandCollapseState.Expanded:
+            ecpt.Collapse(waitTime=0.05)
+            return True
     return False
 
-
 def main():
-    treeItem = automation.ControlFromCursor()
+    treeItem = auto.ControlFromCursor()
     CollapseTreeItem(treeItem)
 
-
-def HotKeyFunc(stopEvent):
-    scriptName = os.path.basename(__file__)
-    cmd = r'python.exe {} main {}'.format(scriptName, ' '.join(sys.argv[1:]))
-    automation.Logger.WriteLine('call ' + cmd)
+def HotKeyFunc(stopEvent: 'Event', argv: list):
+    args = [sys.executable, __file__] + argv
+    cmd = ' '.join('"{}"'.format(arg) for arg in args)
+    auto.Logger.WriteLine('call {}'.format(cmd))
     p = subprocess.Popen(cmd)
     while True:
         if None != p.poll():
             break
         if stopEvent.is_set():
-            childProcess = []
-            for pid, pname in automation.Win32API.EnumProcess():
-                ppid = automation.Win32API.GetParentProcessId(pid)
-                if ppid == p.pid or pid == p.pid:
-                    cmd = automation.Win32API.GetProcessCommandLine(pid)
-                    childProcess.append((pid, pname, cmd))
-            for pid, pname, cmd in childProcess:
-                automation.Logger.WriteLine('kill process: {}, {}, "{}"'.format(pid, pname, cmd), automation.ConsoleColor.Yellow)
-                automation.Win32API.TerminateProcess(pid)
+            childProcesses = [pro for pro in psutil.process_iter() if pro.ppid == p.pid or pro.pid == p.pid]
+            for pro in childProcesses:
+                auto.Logger.WriteLine('kill process: {}, {}'.format(pro.pid, pro.cmdline()), auto.ConsoleColor.Yellow)
+                p.kill()
             break
-        stopEvent.wait(1)
-    automation.Logger.WriteLine('HotKeyFunc exit')
+        stopEvent.wait(0.05)
+    auto.Logger.WriteLine('HotKeyFunc exit')
 
 
 if __name__ == '__main__':
-    if 'main' in sys.argv[1:]:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--main', action='store_true', help='exec main')
+    args = parser.parse_args()
+
+    if args.main:
         main()
     else:
-        automation.Logger.WriteLine('move mouse to a tree control and press Ctrl+3', automation.ConsoleColor.Green)
-        automation.RunWithHotKey({(automation.ModifierKey.MOD_CONTROL, automation.Keys.VK_3) : HotKeyFunc},
-                                 (automation.ModifierKey.MOD_CONTROL, automation.Keys.VK_4))
+        auto.Logger.WriteLine('move mouse to a tree control and press Ctrl+3', auto.ConsoleColor.Green)
+        auto.RunByHotKey({(auto.ModifierKey.Control, auto.Keys.VK_3): lambda event: HotKeyFunc(event, ['--main'])},
+                                 (auto.ModifierKey.Control, auto.Keys.VK_4))
 
