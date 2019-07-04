@@ -2,6 +2,8 @@
 
 uiautomation是我业余时间开发的供我自己使用的一个模块。
 
+uiautomation封装了微软UIAutomation API，支持自动化Win32，MFC，WPF，Modern UI(Metro UI), Qt, IE, Firefox(**version<=56 or >=60**, Firefox57是第一个Rust开发版本,前几个Rust开发版本个人测试发现不支持), Chrome和基于Electron开发的应用程序(Chrome浏览器和Electron应用需要加启动参数--force-renderer-accessibility才能支持UIAutomation).
+
 最新版uiautomation2.0只支持Python 3版本，依赖comtypes和typing这两个包。
 2.0版本之前的代码请参考[API changes](https://github.com/yinkaisheng/Python-UIAutomation-for-Windows/blob/master/API%20changes.txt)修改代码。
 
@@ -14,7 +16,7 @@ uiautomation支持在Windows XP SP3或更高版本的Windows桌面系统上运�
 否则uiautomation运行时很多函数可能会执行失败。
 或者先以管理员权限运行cmd.exe，在cmd中再调用Python，如下图中cmd窗口标题中显示了**管理员**。
 
-安装uiautomation后，在Python的Scripts(比如C:\Python37\Scripts)目录中会有一个文件automation.py，
+安装pip install uiautomation后，在Python的Scripts(比如C:\Python37\Scripts)目录中会有一个文件automation.py，
 或者使用源码根目录里的automation.py。automation.py是用来枚举控件树结构的一个脚本。
 
 运行'**automation.py -h**'，查看命令帮助，写自动化代码时要根据它的输出结果来写对应的代码。
@@ -142,13 +144,13 @@ notepadWindow.ButtonControl(searchDepth=2, Name='关闭').Click()
 auto.SendKeys('{Alt}n')
 ```
 
-automation.GetRootControl()返回控件树的根节点(即桌面窗口Desktop)  
-automation.WindowControl(searchDepth=1, ClassName='Notepad') 创建了一个WindowControl对象, 括号中的参数指定按照什么属性在控件树中查找此控件。 
+auto.GetRootControl()返回控件树的根节点(即桌面窗口Desktop)  
+auto.WindowControl(searchDepth=1, ClassName='Notepad') 创建了一个WindowControl对象, 括号中的参数指定按照什么条件或控件属性在控件树中查找此控件。 
 
 控件的\_\_init__函数中，有下列参数可以使用：  
 searchFromControl = None,  从哪个控件开始查找，如果为None，从根节点Desktop开始查找  
 searchDepth = 0xFFFFFFFF, 搜索深度  
-searchWaitTime = SEARCH_INTERVAL, 搜索间隔  
+searchInterval = SEARCH_INTERVAL, 搜索间隔  
 foundIndex = 1 ，搜索到的满足搜索条件的控件索引，索引从1开始  
 Name  控件名字  
 SubName  控件部分名字  
@@ -163,6 +165,61 @@ searchDepth和Depth的区别是：
 searchDepth在指定的深度范围内（包括1\~searchDepth层中的所有子孙控件）搜索第一个满足搜索条件的控件  
 Depth只在Depth所在的深度（如果Depth>1，排除1\~searchDepth-1层中的所有子孙控件）搜索第一个满足搜索条件的控件
 
+Control.Element返回IUIAutomation底层COM对象[IUIAutomationElement](https://docs.microsoft.com/en-us/windows/desktop/api/uiautomationclient/nn-uiautomationclient-iuiautomationelement)，
+基本上Control的所有属性或方法都是通过调用IUIAutomationElement COM API和Win32 API实现的。
+当你使用一个Control的属性或方法时，属性或方法内部调用Control.Element并且Control.Element是None时uiautomation才开始搜索控件。
+如果在uiautomation.TIME_OUT_SECOND(默认为10)秒内找不到控件，uiautomation就会抛出一个LookupError异常。
+搜索到控件后，Control.Element将会有个有效值。
+你可以调用Control.Exists(maxSearchSeconds, searchIntervalSeconds)来检查一个控件是否存在，此函数不会抛出异常。
+另外可以调用Control.Refind或Control.Exists使Control.Element无效并触发重新搜索逻辑。
+
+例子：  
+```python
+#!python3
+# -*- coding:utf-8 -*-
+import subprocess
+import uiautomation as auto
+auto.uiautomation.SetGlobalSearchTimeout(15)  # 设置全局搜索超时 15
+
+
+def main():
+    subprocess.Popen('notepad.exe')
+    window = auto.WindowControl(searchDepth=1, ClassName='Notepad')
+    edit = window.EditControl()
+    # 当第一次调用SendKeys时, uiautomation开始在15秒内搜索控件window和edit
+    # 因为SendKeys内部会间接调用Control.Element并且Control.Element值是None
+    # 如果在15秒内找不到window和edit，会抛出LookupError异常
+    try:
+        edit.SendKeys('first notepad')
+    except LookupError as ex:
+        print("The first notepad doesn't exist in 15 seconds")
+        return
+    # 第二次调用SendKeys不会触发搜索, 之前的调用保证Control.Element有效
+    edit.SendKeys('{Ctrl}a{Del}')
+    window.GetWindowPattern().Close()  # 关闭第一个Notepad, window和edit的Element虽然有值，但是无效了
+
+    subprocess.Popen('notepad.exe')  # 运行第二个Notepad
+    window.Refind()  # 必须重新搜索
+    edit.Refind()  # 必须重新搜索
+    edit.SendKeys('second notepad')
+    edit.SendKeys('{Ctrl}a{Del}')
+    window.GetWindowPattern().Close()  # 关闭第二个Notepad, window和edit的Element虽然有值，但是再次无效了
+
+    subprocess.Popen('notepad.exe')  # 运行第三个Notepad
+    if window.Exists(3, 1): # 触发重新搜索
+        if edit.Exists(3):  # 触发重新搜索
+            edit.SendKeys('third notepad')  # 之前的Exists保证edit.Element有效
+            edit.SendKeys('{Ctrl}a{Del}')
+        window.GetWindowPattern().Close()
+    else:
+        print("The third notepad doesn't exist in 3 seconds")
+
+
+if __name__ == '__main__':
+    main()
+    
+```
+
 另外可以设置DEBUG_SEARCH_TIME查看搜索控件所遍历的控件数和搜索时间。
 ```python
 import uiautomation as auto
@@ -170,8 +227,9 @@ auto.uiautomation.DEBUG_SEARCH_TIME = True
 ```
 参考demos/automation_calculator.py
 
-
 目录 **demos** 中提供了一些例子，请根据这些例子学习使用uiautomation.  
+
+---
 
 如果你发现automation.py不能打印你所看到的程序的控件，这并不是uiautomation的bug，
 是因为这个程序是使用DirectUI或自定义控件实现的，不是用微软提供的标准控件实现的，
@@ -179,7 +237,7 @@ auto.uiautomation.DEBUG_SEARCH_TIME = True
 微软提供的标准控件默认支持UIAutomation。
 
 比如Chrome浏览器，默认你只能看到最外层的PaneControl Chrome_WidgetWin_1，看不到Chrome具体的子控件，
-如果加了参数**--force-renderer-accessibility**运行Chrome浏览器，就能看到Chrome的子控件了。
+如果加了参数--force-renderer-accessibility运行Chrome浏览器，就能看到Chrome的子控件了。
 这是因为Chrome实现了UI Automation Provider，并做了参数开关
 。如果一个软件是用DirectUI实现的，但没有实现UI Automation Provider，那么这个软件是不支持UIAutomation的。
 
@@ -195,15 +253,19 @@ auto.uiautomation.DEBUG_SEARCH_TIME = True
 ![Word](images/word.png)
 
 
-显示Qt5
-![Qt5](images/automation_Qt.png)
+Wireshark 3.0 (Qt 5.12)
+![Wireshark](images/wireshark3.0.gif)
 
 
-显示QQ
+GitHub Desktop (Electron App)
+![GitHubDesktop](images/github_desktop.png)
+
+
+显示QQ        
 ![QQ](images/automation_qq.png)
 
 
-打印好看的目录结果
+打印好看的目录结构
 
 ![PrettyPrint](images/pretty_print_dir.png)
 
